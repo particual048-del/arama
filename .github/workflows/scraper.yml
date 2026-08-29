@@ -1,0 +1,34 @@
+name: Glutensiz Urun Kaziyici
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repoyu Klonla
+        uses: actions/checkout@v3
+
+      - name: Node.js Kur
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Paketleri Yükle
+        run: npm install axios cheerio
+
+      - name: Kazıma Kodunu Çalıştır
+        run: node index.js
+
+      - name: Değişiklikleri GitHub Reposuna Kaydet
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add colyak_listesi.json
+          git commit -m "Chore: Veritabanı guncellendi [skip ci]" || exit 0
+          git push
+
