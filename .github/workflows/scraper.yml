@@ -2,9 +2,11 @@ name: Glutensiz Urun Kaziyici
 
 on:
   schedule:
-    # Her 5 saatte bir otomatik olarak tetiklenir (Kaldığı üründen devam eder)
     - cron: '0 */5 * * *'
-  workflow_dispatch: # GitHub paneli üzerinden dilediğin zaman elle başlatabilmen için
+  workflow_dispatch:
+  push:
+    paths:
+      - 'colyak_listesi.json'
 
 permissions:
   contents: write
