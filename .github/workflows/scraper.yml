@@ -1,9 +1,11 @@
 name: Glutensiz Urun Kaziyici
 
 on:
-  workflow_dispatch:
+  schedule:
+    # Her 5 saatte bir otomatik olarak tetiklenir (Kaldığı üründen devam eder)
+    - cron: '0 */5 * * *'
+  workflow_dispatch: # GitHub paneli üzerinden dilediğin zaman elle başlatabilmen için
 
-# Botun depoya otomatik push atabilmesi için gerekli yazma izni
 permissions:
   contents: write
 
@@ -22,5 +24,8 @@ jobs:
       - name: Bağımlılıkları Yükle
         run: npm install
 
-      - name: Kazıyıcıyı Çalıştır
+      - name: Kazıma Kodunu Çalıştır
         run: node index.js
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          RENDER_GIT_REPO_SLUG: ${{ github.repository }}
