@@ -1,0 +1,41 @@
+name: Glutensiz Urun Kaziyici
+
+# NOT: GH_TOKEN secret'ı hem repoya push atmak (contents: write) hem de
+# script bitince kendi kendine yeni bir çalıştırma tetiklemek (workflow_dispatch
+# API çağrısı) için kullanılıyor. Bu ikinci işlem için token'ın "Actions: write"
+# (fine-grained PAT) ya da "workflow"/"repo" (classic PAT) yetkisine sahip olması
+# gerekir. Yetki yoksa script hata vermez, sadece bir sonraki zamanlanmış (cron)
+# çalıştırmayı bekler.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scraper-run
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu Klonla
+        uses: actions/checkout@v4
+
+      - name: Node.js Kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bağımlılıkları Yükle
+        run: npm install
+
+      - name: Kazıma Kodunu Çalıştır
+        run: node index.js
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          RENDER_GIT_REPO_SLUG: ${{ github.repository }}
