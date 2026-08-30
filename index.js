@@ -8,7 +8,7 @@ const { execSync } = require('child_process');
 const DATA_FILE = path.join(__dirname, 'colyak_listesi.json');
 const URLS_FILE = path.join(__dirname, 'tum_linkler.json');
 
-// Engellenmeyi önlemek için rastgele User-Agent başlıkları
+// Engellenmeyi önlemek için dinamik User-Agent listesi
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -20,21 +20,20 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-// 1.0 - 1.5 saniye rastgele insan taklidi bekleme süresi
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const getRandomDelay = (min = 1000, max = 1500) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-// GitHub'a Commit & Push yapan fonksiyon (Render & GitHub Actions uyumlu)
+// GitHub'a Commit & Push yapan fonksiyon
 function commitAndPush(count) {
   try {
-    console.log(`\n>>> [OTOMATİK PUSH] ${count} ürün kaydedildi, GitHub'a push yapılıyor...`);
+    console.log(`\n>>> [OTOMATİK PUSH] ${count} ürün JSON veritabanına işlendi, GitHub'a push atılıyor...`);
     execSync('git config --global user.name "github-actions[bot]"');
     execSync('git config --global user.email "github-actions[bot]@users.noreply.github.com"');
     execSync('git add colyak_listesi.json');
-    execSync(`git commit -m "chore: ${count} urun kaydedildi [auto push]"`);
+    execSync(`git commit -m "chore: ${count} urun veritabanina eklendi [auto push]"`);
 
     const token = process.env.GH_TOKEN;
-    const repo = process.env.RENDER_GIT_REPO_SLUG; // Örn: kullanıcıadı/depoadı
+    const repo = process.env.RENDER_GIT_REPO_SLUG || process.env.GITHUB_REPOSITORY;
 
     if (token && repo) {
       execSync(`git push https://${token}@github.com/${repo}.git HEAD:main`);
@@ -42,13 +41,13 @@ function commitAndPush(count) {
       execSync('git push');
     }
 
-    console.log('>>> [OTOMATİK PUSH] İşlem başarılı.\n');
+    console.log('>>> [OTOMATİK PUSH] İşlem başarılı. colyak_listesi.json güncellendi.\n');
   } catch (error) {
-    console.log('>>> [PUSH UYARISI] Commit edilecek yeni değişiklik yok veya push atlandı:', error.message);
+    console.log('>>> [PUSH UYARISI] Commit edilecek yeni değişiklik yok veya push atlandı.');
   }
 }
 
-// HTML içeriğinde Cloudflare / Captcha engeli taraması
+// Sayfa içeriğinde erişim engeli veya Captcha kontrolü
 function isBlockedContent(html) {
   if (!html) return false;
   const lowerHtml = html.toLowerCase();
@@ -67,7 +66,7 @@ function isBlockedContent(html) {
 let consecutiveBlockCount = 0;
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
-// İstek Atma ve Engel Kontrol Fonksiyonu
+// İstek Atma ve Engel Algılama
 async function fetchWithBlockCheck(url) {
   try {
     const response = await axios.get(url, {
@@ -81,11 +80,11 @@ async function fetchWithBlockCheck(url) {
 
     if (isBlockedContent(response.data)) {
       consecutiveBlockCount++;
-      console.warn(`\n⚠️ [ENGEL TESPİT EDİLDİ] Captcha veya Bloklama algılandı! (${consecutiveBlockCount}/${MAX_CONSECUTIVE_BLOCKS})`);
+      console.warn(`\n⚠️ [ERİŞİM ENGELİ LOGU] Captcha/Bloklama algılandı! (${consecutiveBlockCount}/${MAX_CONSECUTIVE_BLOCKS}) -> Link: ${url}`);
       return { data: null, isBlocked: true };
     }
 
-    consecutiveBlockCount = 0; // Başarılı istekte sayacı sıfırla
+    consecutiveBlockCount = 0;
     return { data: response.data, isBlocked: false };
 
   } catch (err) {
@@ -93,27 +92,42 @@ async function fetchWithBlockCheck(url) {
 
     if (status === 429 || status === 403) {
       consecutiveBlockCount++;
-      console.warn(`\n⚠️ [ENGEL TESPİT EDİLDİ] HTTP ${status} hatası! (${consecutiveBlockCount}/${MAX_CONSECUTIVE_BLOCKS})`);
+      console.warn(`\n⚠️ [ERİŞİM ENGELİ LOGU] HTTP Status ${status} hatası! (${consecutiveBlockCount}/${MAX_CONSECUTIVE_BLOCKS}) -> Link: ${url}`);
       return { data: null, isBlocked: true };
     }
 
-    console.error(`[HATA] Bağlantı hatası (${url}): ${err.message}`);
+    console.error(`\n❌ [BAĞLANTI HATASI LOGU] (${url}): ${err.message}`);
     return { data: null, isBlocked: false };
   }
 }
 
+// Metinden veya URL'den Barkod (EAN-13 / GTIN) Çıkarma Fonksiyonu
+function extractBarcode(text, url) {
+  const barcodeRegex = /\b869\d{10}\b|\b\d{13}\b/;
+  const matchInUrl = url.match(barcodeRegex);
+  if (matchInUrl) return matchInUrl[0];
+
+  const matchInText = text.match(barcodeRegex);
+  if (matchInText) return matchInText[0];
+
+  return null;
+}
+
 async function scrape() {
   let savedData = [];
+
+  // Mevcut veritabanı dosyasını okuyarak kaldığı yerden devam etmesini sağla
   if (fs.existsSync(DATA_FILE)) {
     try {
-      savedData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+      const fileContent = fs.readFileSync(DATA_FILE, 'utf-8');
+      savedData = JSON.parse(fileContent);
     } catch (e) {
       savedData = [];
     }
   }
 
   if (!fs.existsSync(URLS_FILE)) {
-    console.error(`[KRİTİK HATA] ${URLS_FILE} bulunamadı! Lütfen dosya adını kontrol edin.`);
+    console.error(`[KRİTİK HATA] ${URLS_FILE} dosyası bulunamadı!`);
     process.exit(1);
   }
 
@@ -121,9 +135,11 @@ async function scrape() {
   const processedUrls = new Set(savedData.map(item => item.url));
   const remainingUrls = allUrls.filter(url => !processedUrls.has(url));
 
-  console.log(`Toplam Link: ${allUrls.length}`);
-  console.log(`Zaten Çekilen: ${processedUrls.size}`);
-  console.log(`Kalan İşlenecek: ${remainingUrls.length}\n`);
+  console.log(`===========================================`);
+  console.log(`Toplam Link Sayısı   : ${allUrls.length}`);
+  console.log(`Veritabanındaki Ürün : ${processedUrls.size}`);
+  console.log(`Kalan İşlenecek Link : ${remainingUrls.length}`);
+  console.log(`===========================================\n`);
 
   let newlyAddedCount = 0;
 
@@ -131,9 +147,9 @@ async function scrape() {
     const url = remainingUrls[i];
     const currentIndex = processedUrls.size + newlyAddedCount + 1;
 
-    // Üst üste 3 engel alınırsa botu veri kaybı olmadan durdur
+    // Üst üste 3 engel alınırsa verileri kaydedip durdur
     if (consecutiveBlockCount >= MAX_CONSECUTIVE_BLOCKS) {
-      console.error(`\n🚨 [KRİTİK UYARI] Üst üste ${MAX_CONSECUTIVE_BLOCKS} kez engellendi. IP güvenliği için bot durduruluyor.`);
+      console.error(`\n🚨 [KRİTİK ENGEL DURUMU] Üst üste ${MAX_CONSECUTIVE_BLOCKS} kez erişim engeli alındı. İşlem güvenli şekilde durduruluyor.`);
       fs.writeFileSync(DATA_FILE, JSON.stringify(savedData, null, 2));
       commitAndPush(savedData.length);
       process.exit(1);
@@ -142,7 +158,7 @@ async function scrape() {
     const { data: html, isBlocked } = await fetchWithBlockCheck(url);
 
     if (isBlocked) {
-      await sleep(10000); // Engel yendiğinde 10 saniye bekle
+      await sleep(10000); // Engelle karşılaşıldığında 10 saniye bekle
       continue;
     }
 
@@ -150,25 +166,43 @@ async function scrape() {
 
     const $ = cheerio.load(html);
     const title = $('h1').text().trim() || 'Bilinmeyen Ürün';
-    const pageText = $('body').text();
-    const isGlutenFree = pageText.includes('Glutensiz') || pageText.includes('gluten içermez');
+    const rawBodyText = $('body').text();
+    
+    // Türkçe karakter uyumlu küçük harf dönüştürme (GLUTENSİZ -> glutensiz)
+    const pageText = rawBodyText.toLocaleLowerCase('tr-TR');
+    const pageTitle = title.toLocaleLowerCase('tr-TR');
 
-    savedData.push({
-      url,
-      title,
+    // Gluten durumu kontrolü (büyük/küçük harf bağımsız)
+    const isGlutenFree = pageText.includes('glutensiz') || 
+                         pageTitle.includes('glutensiz') ||
+                         pageText.includes('gluten içermez') || 
+                         pageText.includes('gluten icermez') ||
+                         pageText.includes('gluten-free');
+
+    // Barkod tespiti
+    const barcode = extractBarcode(rawBodyText, url);
+
+    // JSON Veritabanı Eleman Yapısı
+    const productData = {
+      barcode: barcode,
+      title: title,
       glutenFree: isGlutenFree,
+      url: url,
       scrapedAt: new Date().toISOString()
-    });
+    };
 
+    savedData.push(productData);
     newlyAddedCount++;
-    console.log(`[${currentIndex}/${allUrls.length}] Çekildi: ${title}`);
 
-    // Her 20 üründe bir yerele kaydet
+    // Konsola Canlı Bilgi Basma
+    console.log(`[${currentIndex}/${allUrls.length}] Çekildi | Ürün: "${title}" | Barkod: ${barcode || 'Bulunamadı'} | Glutensiz: ${isGlutenFree}`);
+
+    // Her 20 üründe bir yerele yaz
     if (newlyAddedCount % 20 === 0) {
       fs.writeFileSync(DATA_FILE, JSON.stringify(savedData, null, 2));
     }
 
-    // Her 200 üründe bir GitHub'a commit & push at
+    // Her 200 üründe bir dosyaya yaz ve GitHub'a push at
     if (newlyAddedCount % 200 === 0) {
       fs.writeFileSync(DATA_FILE, JSON.stringify(savedData, null, 2));
       commitAndPush(savedData.length);
@@ -177,10 +211,10 @@ async function scrape() {
     await sleep(getRandomDelay(1000, 1500));
   }
 
-  // İşlem tamamen bittiğinde son hali push'la
+  // Tüm tarama bittiğinde son hali kaydet ve push'la
   fs.writeFileSync(DATA_FILE, JSON.stringify(savedData, null, 2));
   commitAndPush(savedData.length);
-  console.log('Tüm kazıma işlemi başarıyla tamamlandı!');
+  console.log('\nTüm ürün tarama işlemi başarıyla tamamlandı!');
 }
 
 scrape();
