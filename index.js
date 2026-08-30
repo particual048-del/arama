@@ -20,6 +20,15 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+// Başlık sonundaki (barkod) ve \N kaçış karakterlerini temizleyen fonksiyon
+function temizleBaslik(metin) {
+  if (!metin) return "";
+  return metin
+    .replace(/\s*\(\d+\)/g, '')   // Parantez içindeki barkodu ve önündeki boşluğu siler
+    .replace(/\\N|\n/gi, '')       // \N, \n ve alt satır kaçış karakterlerini temizler
+    .trim();                       // Baştaki ve sondaki boşlukları kırpar
+}
+
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const getRandomDelay = (min = 1000, max = 1500) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -165,7 +174,11 @@ async function scrape() {
     if (!html) continue;
 
     const $ = cheerio.load(html);
-    const title = $('h1').text().trim() || 'Bilinmeyen Ürün';
+    const rawTitle = $('h1').text().trim() || 'Bilinmeyen Ürün';
+    
+    // Ürün başlığını kirli karakterlerden ve parantez içi barkodlardan arındır
+    const title = temizleBaslik(rawTitle);
+    
     const rawBodyText = $('body').text();
     
     // Türkçe karakter uyumlu küçük harf dönüştürme (GLUTENSİZ -> glutensiz)
@@ -182,7 +195,7 @@ async function scrape() {
     // Barkod tespiti
     const barcode = extractBarcode(rawBodyText, url);
 
-    // JSON Veritabanı Eleman Yapısı
+    // JSON Veritabanı Eleman Yapısı (Orijinal Yapı)
     const productData = {
       barcode: barcode,
       title: title,
